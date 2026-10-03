@@ -10,7 +10,8 @@ from contextlib import contextmanager
 from semantic_kernel import Kernel
 from semantic_kernel.agents import ChatCompletionAgent, SequentialOrchestration
 from semantic_kernel.agents.runtime import InProcessRuntime
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion, OpenAIChatCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion, OpenAIChatCompletion, OpenAIChatPromptExecutionSettings
+from semantic_kernel.functions import KernelArguments
 from semantic_kernel.kernel_pydantic import KernelBaseModel
 from semantic_kernel.contents import ChatMessageContent
 from rag_utils import extract_banking_policies, create_semantic_kernel_context
@@ -369,6 +370,25 @@ class EnhancedBankingSequentialOrchestration:
 
         return default_profiles
 
+    def _build_llm_arguments(self) -> Optional[KernelArguments]:
+        """Optional generation settings from env: LLM_MAX_TOKENS, LLM_TEMPERATURE, LLM_REASONING_EFFORT"""
+        if self.llm_mode != "openai":
+            return None
+        options = {}
+        max_tokens = os.getenv("LLM_MAX_TOKENS", "").strip()
+        temperature = os.getenv("LLM_TEMPERATURE", "").strip()
+        effort = os.getenv("LLM_REASONING_EFFORT", "").strip()
+        if max_tokens:
+            options["max_tokens"] = int(max_tokens)
+        if temperature:
+            options["temperature"] = float(temperature)
+        if effort:
+            options["extra_body"] = {"reasoning_effort": effort}
+        if not options:
+            return None
+        settings = OpenAIChatPromptExecutionSettings(service_id="enhanced_banking_chat", **options)
+        return KernelArguments(settings=settings)
+
     def create_enhanced_agents(self) -> List[ChatCompletionAgent]:
         """Create specialized banking agents with detailed instructions"""
         if self.llm_mode == "offline":
@@ -376,6 +396,7 @@ class EnhancedBankingSequentialOrchestration:
             service = None
         else:
             service = self.kernel.get_service("enhanced_banking_chat")
+        llm_arguments = self._build_llm_arguments()
 
         data_agent = ChatCompletionAgent(
             name="Enhanced_Data_Gatherer",
@@ -393,7 +414,8 @@ Output format:
 - Data Quality Assessment (completeness score)
 - Policy Relevance Mapping (which policies apply to this customer)
 - Key observations about the customer's financial behavior""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         fraud_agent = ChatCompletionAgent(
@@ -416,7 +438,8 @@ Output format:
 - Fraud Risk Score (0-100) with risk level
 - Identified suspicious indicators (if any)
 - Recommended actions and monitoring enhancements""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         loan_agent = ChatCompletionAgent(
@@ -440,7 +463,8 @@ Output format:
 - Maximum recommended loan amount
 - Required documentation level (Basic/Standard/Comprehensive/Premium)
 - Product recommendations""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         support_agent = ChatCompletionAgent(
@@ -461,7 +485,8 @@ Output format:
 - Identified service gaps and improvement opportunities
 - Retention risk assessment
 - Recommended engagement actions""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         risk_agent = ChatCompletionAgent(
@@ -486,7 +511,8 @@ Output format:
 - Compliance status with specific policy references
 - Prioritized mitigation recommendations
 - Recommended monitoring and review schedule""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         synthesis_agent = ChatCompletionAgent(
@@ -507,7 +533,8 @@ Output format:
 - Strategic Recommendations (prioritized)
 - Immediate Action Items
 - Long-term Relationship Strategy""",
-            service=service
+            service=service,
+            arguments=llm_arguments
         )
 
         agents = [data_agent, fraud_agent, loan_agent, support_agent, risk_agent, synthesis_agent]
