@@ -52,7 +52,8 @@ The sequence diagram below shows the complete data flow from user query to final
 
 ```
 banking-agenttt/
-|-- start.sh                     # One-command launcher (dev or prod)
+|-- start.sh                     # Launcher for macOS/Linux (dev or prod)
+|-- start.bat / start.ps1        # Launcher for Windows (dev or prod)
 |-- backend/
 |   |-- api.py                   # FastAPI web API (REST + SSE streaming), serves built frontend
 |   |-- main_starter.py          # Orchestration engine + CLI entry point
@@ -100,10 +101,21 @@ banking-agenttt/
 
 ## Quick Start
 
+**macOS / Linux**
+
 ```bash
 ./start.sh          # backend on :8000 + frontend dev server on :5173
 ./start.sh prod     # builds the frontend and serves everything from :8000
 ```
+
+**Windows (PowerShell or Command Prompt)**
+
+```powershell
+.\start.bat         # backend opens in a new window on :8000, frontend on :5173
+.\start.bat prod    # builds the frontend and serves everything from :8000
+```
+
+`start.bat` runs `start.ps1` with the execution policy bypassed, so you don't need to change system settings.
 
 Then open http://localhost:5173 (dev) or http://localhost:8000 (prod). API docs: http://localhost:8000/docs
 
