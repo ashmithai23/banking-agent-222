@@ -193,6 +193,16 @@ class ChromaDBManager:
         semantic_results.sort(key=lambda x: x["final_score"], reverse=True)
         return semantic_results
     
+    def has_document(self, filename: str) -> bool:
+        """Return True if any collection already holds chunks for this document"""
+        for collection in self.collections.values():
+            try:
+                if collection.get(where={"filename": filename}, limit=1)["ids"]:
+                    return True
+            except Exception:
+                continue
+        return False
+
     async def get_collection_stats(self) -> Dict[str, Any]:
         """Get detailed statistics for all collections"""
         stats = {}

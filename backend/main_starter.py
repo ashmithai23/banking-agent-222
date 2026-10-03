@@ -507,24 +507,36 @@ Output format:
         agents = [data_agent, fraud_agent, loan_agent, support_agent, risk_agent, synthesis_agent]
         return agents
 
-    async def load_enhanced_documents(self):
-        """Load banking policy documents into ChromaDB for semantic search"""
-        stats = await self.chroma_store.get_collection_stats()
-        total_docs = sum(s.get("document_count", 0) for s in stats.values())
+    async def load_enhanced_documents(self, max_attempts: int = 3):
+        """Load banking policy documents into ChromaDB for semantic search.
 
-        if total_docs > 0:
-            self.logger.info(f"ChromaDB already has {total_docs} document chunks loaded")
-            return
-
+        Checks each document individually so one that failed earlier (e.g. while the
+        embedding model was still downloading) is retried on the next start.
+        """
+        loaded, failed = 0, []
         for doc_name in self.blob_connector.list_documents():
+            if self.chroma_store.has_document(doc_name):
+                continue
             content = self.blob_connector.get_document_content(doc_name)
-            if content:
-                doc_type = (self.blob_connector.get_document_metadata(doc_name) or {}).get("type", "")
-                collection_type = DOC_TYPE_COLLECTIONS.get(doc_type) or \
-                    self.chroma_store.determine_collection(doc_name, content)
-                await self.chroma_store.chunk_and_store_document(doc_name, content, collection_type)
+            if not content:
+                continue
+            doc_type = (self.blob_connector.get_document_metadata(doc_name) or {}).get("type", "")
+            collection_type = DOC_TYPE_COLLECTIONS.get(doc_type) or \
+                self.chroma_store.determine_collection(doc_name, content)
+            for attempt in range(1, max_attempts + 1):
+                if await self.chroma_store.chunk_and_store_document(doc_name, content, collection_type):
+                    loaded += 1
+                    break
+                self.logger.warning(f"Storing {doc_name} failed (attempt {attempt}/{max_attempts})")
+                await asyncio.sleep(2 * attempt)
+            else:
+                failed.append(doc_name)
 
-        self.logger.info("Banking documents loaded into ChromaDB")
+        if failed:
+            self.logger.error(f"Could not load into ChromaDB (will retry next start): {failed}")
+        stats = await self.chroma_store.get_collection_stats()
+        total = sum(v.get("document_count", 0) for v in stats.values())
+        self.logger.info(f"ChromaDB ready: {total} chunks ({loaded} documents newly loaded)")
 
     async def get_customer_profiles(self) -> Dict[str, CustomerProfile]:
         """Return cached customer profiles, loading them on first use"""
