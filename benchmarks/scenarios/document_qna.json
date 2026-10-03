@@ -1,0 +1,10 @@
+{
+  "test_case_id": "TC-DOC-004",
+  "name": "Vector Retrieval for Wire Transfer Fee Schedule",
+  "query": "What is the fee for an outgoing international wire transfer in foreign currency?",
+  "ground_truth": {
+    "expected_fee": "$25.00",
+    "source_document": "fee_schedule_2026.pdf",
+    "section": "Wire Transfer Services"
+  }
+}
