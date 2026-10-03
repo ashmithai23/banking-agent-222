@@ -5,7 +5,9 @@
 param([string]$Mode = "dev")
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
+# Normalize the drive letter to upper case (c:\ -> C:\); Vite on Windows can 404 on mismatched path casing
+if ($Root -match '^[a-z]:') { $Root = $Root.Substring(0, 1).ToUpper() + $Root.Substring(1) }
 $Backend = Join-Path $Root "backend"
 $Frontend = Join-Path $Root "frontend"
 $BackendPort = if ($env:BACKEND_PORT) { $env:BACKEND_PORT } else { "8000" }
@@ -84,4 +86,6 @@ Start-Process powershell -WorkingDirectory $Backend -ArgumentList @("-NoExit", "
 
 Write-Host ">> Frontend: http://localhost:$FrontendPort  (Ctrl+C to stop; close the backend window separately)" -ForegroundColor Green
 $env:VITE_BACKEND_URL = "http://localhost:$BackendPort"
-npm run dev -- --port $FrontendPort
+$env:FRONTEND_PORT = $FrontendPort
+# Run Vite through node directly (PowerShell drops "--" when forwarding args via npm.ps1)
+& node (Join-Path $Frontend "node_modules\vite\bin\vite.js")

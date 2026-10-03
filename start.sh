@@ -44,4 +44,4 @@ trap 'kill $BACK_PID 2>/dev/null || true' EXIT INT TERM
 cd "$ROOT/frontend"
 echo ">> Backend:  http://localhost:$BACKEND_PORT/docs"
 echo ">> Frontend: http://localhost:$FRONTEND_PORT"
-VITE_BACKEND_URL="http://localhost:$BACKEND_PORT" npx vite --port "$FRONTEND_PORT"
+VITE_BACKEND_URL="http://localhost:$BACKEND_PORT" FRONTEND_PORT="$FRONTEND_PORT" node node_modules/vite/bin/vite.js
