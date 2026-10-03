@@ -28,10 +28,10 @@ class ChromaDBManager:
                 path=self.persist_directory,
                 settings=Settings(anonymized_telemetry=False)
             )
-            print("✅ ChromaDB client initialized successfully")
+            print("INFO: ChromaDB client initialized successfully")
             self._initialize_collections()
         except Exception as e:
-            print(f"❌ ChromaDB initialization failed: {e}")
+            print(f"ERROR: ChromaDB initialization failed: {e}")
             self.client = None
     
     def _initialize_collections(self):
@@ -52,9 +52,9 @@ class ChromaDBManager:
                     metadata={"description": description, "type": "banking", "hnsw:space": "cosine"}
                 )
                 self.collections[name] = collection
-                print(f"  ✅ Collection '{name}' initialized")
+                print(f"  INFO: Collection '{name}' initialized")
             except Exception as e:
-                print(f"  ❌ Failed to initialize collection '{name}': {e}")
+                print(f"  ERROR: Failed to initialize collection '{name}': {e}")
     
     def determine_collection(self, filename: str, content: str) -> str:
         """Determine the appropriate collection based on content analysis"""
@@ -108,10 +108,10 @@ class ChromaDBManager:
                 metadatas=metadatas,
                 ids=ids
             )
-            print(f"  ✅ Stored {len(documents)} chunks from {filename} in {collection_type}")
+            print(f"  INFO: Stored {len(documents)} chunks from {filename} in {collection_type}")
             return len(documents)
         except Exception as e:
-            print(f"  ❌ Failed to store chunks from {filename}: {e}")
+            print(f"  ERROR: Failed to store chunks from {filename}: {e}")
             return 0
     
     def _chunk_document(self, content: str, filename: str) -> List[str]:
@@ -179,7 +179,7 @@ class ChromaDBManager:
                             "chunk_info": f"Chunk {metadata.get('chunk_index', 0)} of {metadata.get('total_chunks', 1)}"
                         })
             except Exception as e:
-                print(f"  ❌ Search error in {collection_name}: {e}")
+                print(f"  ERROR: Search error in {collection_name}: {e}")
         
         # Sort by relevance (higher score is better)
         all_results.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -240,7 +240,7 @@ class ChromaDBManager:
             self.collections[name] = collection
             return collection
         except Exception as e:
-            print(f"❌ Error creating collection {name}: {e}")
+            print(f"ERROR: Error creating collection {name}: {e}")
             return None
     
     async def delete_collection(self, name: str):
@@ -249,9 +249,9 @@ class ChromaDBManager:
             if name in self.collections:
                 self.client.delete_collection(name)
                 del self.collections[name]
-                print(f"✅ Deleted collection: {name}")
+            print(f"INFO: Deleted collection: {name}")
         except Exception as e:
-            print(f"❌ Error deleting collection {name}: {e}")
+            print(f"ERROR: Error deleting collection {name}: {e}")
     
     async def get_document_chunks(self, filename: str, collection_name: str) -> List[Dict]:
         """Get all chunks for a specific document"""
@@ -270,5 +270,5 @@ class ChromaDBManager:
             
             return sorted(chunks, key=lambda x: x["metadata"].get("chunk_index", 0))
         except Exception as e:
-            print(f"❌ Error getting chunks for {filename}: {e}")
+            print(f"ERROR: Error getting chunks for {filename}: {e}")
             return []
