@@ -251,11 +251,17 @@ class EnhancedBankingSequentialOrchestration:
                 return "azure", azure_name
             if openai_key and forced in ("", "openai"):
                 model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
-                self.kernel.add_service(OpenAIChatCompletion(
+                kwargs = dict(
                     service_id="enhanced_banking_chat",
                     ai_model_id=model,
                     api_key=openai_key,
-                ))
+                )
+                # Any OpenAI-compatible endpoint (e.g. NVIDIA NIM, OpenRouter, vLLM)
+                base_url = os.getenv("OPENAI_BASE_URL", "").strip()
+                if base_url:
+                    from openai import AsyncOpenAI
+                    kwargs["async_client"] = AsyncOpenAI(api_key=openai_key, base_url=base_url)
+                self.kernel.add_service(OpenAIChatCompletion(**kwargs))
                 return "openai", model
         return "offline", "rule-based-agents"
 
