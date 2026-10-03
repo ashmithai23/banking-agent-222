@@ -1,0 +1,15 @@
+{
+  "test_case_id": "TC-WIRE-006",
+  "name": "Consumer Daily Domestic Fedwire Limit Checks",
+  "request": {
+    "amount": 75000,
+    "transfer_channel": "mobile_app",
+    "tier": "preferred_banking"
+  },
+  "expected_outcomes": {
+    "approved_channel": false,
+    "max_mobile_limit": 50000,
+    "recommended_channel": "branch_or_relationship_manager",
+    "security_token_required": true
+  }
+}
