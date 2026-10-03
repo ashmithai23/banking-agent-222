@@ -1,0 +1,295 @@
+from typing import Any, List, Dict
+import os
+import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def read_document_file(file_path: str) -> str:
+    """
+    Read text content from PDF, DOCX, or TXT banking policy documents.
+    Supports multiple formats for flexible document ingestion into the RAG pipeline.
+    """
+    if not os.path.exists(file_path):
+        logger.error(f"Document file not found: {file_path}")
+        return ""
+
+    ext = os.path.splitext(file_path)[1].lower()
+
+    try:
+        if ext == ".pdf":
+            return _read_pdf(file_path)
+        elif ext == ".docx":
+            return _read_docx(file_path)
+        elif ext in (".txt", ".md"):
+            return _read_text(file_path)
+        else:
+            logger.warning(f"Unsupported file format '{ext}' for {file_path}, attempting plain text read")
+            return _read_text(file_path)
+    except Exception as e:
+        logger.error(f"Error reading document {file_path}: {e}")
+        return ""
+
+
+def _read_pdf(file_path: str) -> str:
+    """Extract text from a PDF file using PyPDF2 or pdfplumber."""
+    try:
+        import PyPDF2
+        text_parts = []
+        with open(file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+        return "\n\n".join(text_parts)
+    except ImportError:
+        pass
+
+    try:
+        import pdfplumber
+        text_parts = []
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+        return "\n\n".join(text_parts)
+    except ImportError:
+        logger.error("No PDF library available. Install PyPDF2 or pdfplumber: pip install PyPDF2")
+        return ""
+
+
+def _read_docx(file_path: str) -> str:
+    """Extract text from a DOCX file using python-docx."""
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        return "\n\n".join(para.text for para in doc.paragraphs if para.text.strip())
+    except ImportError:
+        logger.error("python-docx not installed. Install with: pip install python-docx")
+        return ""
+
+
+def _read_text(file_path: str) -> str:
+    """Read plain text or markdown files."""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
+    """
+    Split text into overlapping chunks for vector embedding.
+    Uses paragraph boundaries where possible for semantic coherence.
+    """
+    if not text.strip():
+        return []
+
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    chunks = []
+    current_chunk = ""
+
+    for paragraph in paragraphs:
+        if len(current_chunk) + len(paragraph) > chunk_size and current_chunk:
+            chunks.append(current_chunk.strip())
+            # Keep overlap from end of previous chunk
+            if overlap > 0:
+                current_chunk = current_chunk[-overlap:] + "\n\n" + paragraph
+            else:
+                current_chunk = paragraph
+        else:
+            current_chunk += ("\n\n" if current_chunk else "") + paragraph
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+def extract_banking_policies(docs: List[Dict]) -> Dict[str, Any]:
+    """
+    Extract and structure banking policies from loaded documents for Semantic Kernel
+    """
+    policies = {
+        "loan_policies": {},
+        "fraud_policies": {},
+        "support_policies": {}
+    }
+    
+    for doc in docs:
+        doc_id = doc["id"].lower()
+        if "loan" in doc_id:
+            policies["loan_policies"] = _parse_loan_policies(doc["text"])
+        elif "fraud" in doc_id:
+            policies["fraud_policies"] = _parse_fraud_policies(doc["text"])
+        elif "support" in doc_id:
+            policies["support_policies"] = _parse_support_policies(doc["text"])
+    
+    return policies
+
+def _parse_loan_policies(text: str) -> Dict[str, Any]:
+    """Parse loan eligibility policies from document text"""
+    policies = {
+        "income_requirements": {},
+        "credit_score_ranges": {},
+        "debt_to_income_limits": {},
+        "document_requirements": [],
+        "risk_tiers": {}
+    }
+    
+    # Simple parsing logic - can be enhanced with NLP
+    lines = text.split('\n')
+    for line in lines:
+        line_lower = line.lower()
+        if "income" in line_lower and "minimum" in line_lower:
+            # Extract numbers
+            numbers = re.findall(r'\$?(\d+(?:,\d+)*(?:\.\d+)?)', line)
+            if numbers:
+                policies["income_requirements"]["minimum"] = float(numbers[0].replace(',', ''))
+        elif "credit score" in line_lower:
+            numbers = re.findall(r'\d+', line)
+            if len(numbers) >= 2:
+                policies["credit_score_ranges"] = {
+                    "excellent": int(numbers[0]),
+                    "good": int(numbers[1]) if len(numbers) > 1 else 700,
+                    "fair": int(numbers[2]) if len(numbers) > 2 else 650
+                }
+        elif "debt" in line_lower and "income" in line_lower:
+            numbers = re.findall(r'(\d+(?:\.\d+)?)%', line)
+            if numbers:
+                policies["debt_to_income_limits"]["maximum"] = float(numbers[0]) / 100
+    
+    return policies
+
+def _parse_fraud_policies(text: str) -> Dict[str, Any]:
+    """Parse fraud detection policies from document text"""
+    policies = {
+        "suspicious_patterns": [],
+        "risk_thresholds": {},
+        "escalation_procedures": [],
+        "monitoring_rules": {}
+    }
+    
+    lines = text.split('\n')
+    for line in lines:
+        line_lower = line.lower()
+        if any(word in line_lower for word in ["large transaction", "unusual activity"]):
+            policies["suspicious_patterns"].append("large_transactions")
+        elif any(word in line_lower for word in ["multiple locations", "geographic"]):
+            policies["suspicious_patterns"].append("unusual_locations")
+        elif "threshold" in line_lower:
+            numbers = re.findall(r'\$?(\d+(?:,\d+)*(?:\.\d+)?)', line)
+            if numbers:
+                policies["risk_thresholds"]["transaction_amount"] = float(numbers[0].replace(',', ''))
+    
+    return policies
+
+def _parse_support_policies(text: str) -> Dict[str, Any]:
+    """Parse customer support policies from document text"""
+    policies = {
+        "response_times": {},
+        "escalation_paths": [],
+        "self_service_options": [],
+        "contact_methods": []
+    }
+    
+    lines = text.split('\n')
+    for line in lines:
+        line_lower = line.lower()
+        if "response" in line_lower and "time" in line_lower:
+            if "hour" in line_lower:
+                policies["response_times"]["standard"] = "24 hours"
+            if "minute" in line_lower:
+                policies["response_times"]["urgent"] = "30 minutes"
+        elif any(word in line_lower for word in ["escalate", "supervisor"]):
+            policies["escalation_paths"].append("supervisor_escalation")
+        elif any(word in line_lower for word in ["self-service", "automated"]):
+            policies["self_service_options"].append("online_portal")
+    
+    return policies
+
+def create_semantic_kernel_context(policies: Dict[str, Any]) -> str:
+    """
+    Create a context string from policies for Semantic Kernel prompts
+    """
+    context_parts = []
+    
+    # Loan policies context
+    if policies["loan_policies"]:
+        loan_ctx = "Loan Policies:\n"
+        if policies["loan_policies"].get("income_requirements"):
+            min_income = policies["loan_policies"]["income_requirements"].get("minimum")
+            if min_income:
+                loan_ctx += f"- Minimum income: ${min_income:,.2f}\n"
+        if policies["loan_policies"].get("credit_score_ranges"):
+            scores = policies["loan_policies"]["credit_score_ranges"]
+            loan_ctx += f"- Credit score ranges: Excellent ({scores.get('excellent', 750)}+), Good ({scores.get('good', 700)}+)\n"
+        context_parts.append(loan_ctx)
+    
+    # Fraud policies context
+    if policies["fraud_policies"]:
+        fraud_ctx = "Fraud Detection Policies:\n"
+        if policies["fraud_policies"].get("suspicious_patterns"):
+            patterns = policies["fraud_policies"]["suspicious_patterns"]
+            fraud_ctx += f"- Monitor for: {', '.join(patterns)}\n"
+        if policies["fraud_policies"].get("risk_thresholds"):
+            threshold = policies["fraud_policies"]["risk_thresholds"].get("transaction_amount")
+            if threshold:
+                fraud_ctx += f"- High risk threshold: ${threshold:,.2f}\n"
+        context_parts.append(fraud_ctx)
+    
+    # Support policies context
+    if policies["support_policies"]:
+        support_ctx = "Customer Support Policies:\n"
+        if policies["support_policies"].get("response_times"):
+            times = policies["support_policies"]["response_times"]
+            support_ctx += f"- Response times: Standard ({times.get('standard', '24 hours')}), Urgent ({times.get('urgent', '30 minutes')})\n"
+        if policies["support_policies"].get("self_service_options"):
+            options = policies["support_policies"]["self_service_options"]
+            support_ctx += f"- Self-service: {', '.join(options)}\n"
+        context_parts.append(support_ctx)
+    
+    return "\n".join(context_parts) if context_parts else "No specific policies loaded."
+
+def validate_against_policies(customer_data: Dict[str, Any], policies: Dict[str, Any], query_type: str) -> Dict[str, Any]:
+    """
+    Validate customer data against banking policies
+    """
+    validation_result = {
+        "compliant": True,
+        "violations": [],
+        "warnings": [],
+        "recommendations": []
+    }
+    
+    if query_type == "loan":
+        loan_policies = policies.get("loan_policies", {})
+        income = customer_data.get("income", 0)
+        transactions = customer_data.get("transactions", [])
+        
+        # Check income requirements
+        min_income = loan_policies.get("income_requirements", {}).get("minimum", 0)
+        if income < min_income:
+            validation_result["compliant"] = False
+            validation_result["violations"].append(f"Income ${income:,.2f} below minimum requirement ${min_income:,.2f}")
+        
+        # Check debt-to-income
+        monthly_debits = sum(tx.get('amount', 0) for tx in transactions if tx.get('type') == 'debit')
+        monthly_income = income / 12
+        dti = monthly_debits / monthly_income if monthly_income > 0 else 0
+        max_dti = loan_policies.get("debt_to_income_limits", {}).get("maximum", 0.5)
+        
+        if dti > max_dti:
+            validation_result["warnings"].append(f"Debt-to-income ratio {dti:.2%} exceeds recommended maximum {max_dti:.2%}")
+    
+    elif query_type == "fraud":
+        fraud_policies = policies.get("fraud_policies", {})
+        transactions = customer_data.get("transactions", [])
+        threshold = fraud_policies.get("risk_thresholds", {}).get("transaction_amount", 1000)
+        
+        large_transactions = [tx for tx in transactions if tx.get('amount', 0) > threshold]
+        if large_transactions:
+            validation_result["warnings"].append(f"Found {len(large_transactions)} transactions exceeding ${threshold:,.2f} threshold")
+    
+    return validation_result
+
