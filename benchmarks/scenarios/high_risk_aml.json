@@ -1,0 +1,15 @@
+{
+  "test_case_id": "TC-AML-002",
+  "name": "High-Risk Structuring and CTR Trigger Detection",
+  "transactions": [
+    {"amount": 9500, "type": "cash_deposit", "date": "2026-10-01"},
+    {"amount": 9800, "type": "cash_deposit", "date": "2026-10-02"},
+    {"amount": 9900, "type": "cash_deposit", "date": "2026-10-03"}
+  ],
+  "expected_outcomes": {
+    "aml_flag_triggered": true,
+    "rule_code": "BSA-002",
+    "requires_sar_review": true,
+    "compliance_hold": true
+  }
+}
