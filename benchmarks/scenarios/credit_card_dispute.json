@@ -1,0 +1,15 @@
+{
+  "test_case_id": "TC-DISP-005",
+  "name": "Reg E vs Reg Z Card Dispute Triage",
+  "incident": {
+    "card_type": "credit",
+    "transaction_amount": 420.50,
+    "merchant": "Unauthorized Electronics Retailer",
+    "days_since_statement": 18
+  },
+  "expected_outcomes": {
+    "applicable_regulation": "Regulation Z",
+    "maximum_consumer_liability": 50.00,
+    "provisional_credit_required_days": 10
+  }
+}
