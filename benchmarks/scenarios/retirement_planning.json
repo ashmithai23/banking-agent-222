@@ -1,0 +1,17 @@
+{
+  "test_case_id": "TC-RET-003",
+  "name": "401(k) Long-Term Compound Growth Projections",
+  "parameters": {
+    "current_age": 30,
+    "retirement_age": 65,
+    "initial_balance": 25000,
+    "monthly_contribution": 1000,
+    "estimated_annual_return": 0.08,
+    "compounding_periods_per_year": 12
+  },
+  "expected_outcomes": {
+    "projected_balance_range": [2600000, 2750000],
+    "total_principal_contributed": 445000,
+    "compound_earnings_multiple": 5.9
+  }
+}
