@@ -7,11 +7,13 @@ import asyncio
 import json
 import logging
 import os
+import io
 import sys
+from datetime import datetime
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -172,6 +174,63 @@ async def search(req: SearchRequest) -> List[Dict[str, Any]]:
         }
         for r in results
     ]
+
+
+@app.post("/api/documents/upload")
+async def upload_document(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Upload custom policy document (.pdf, .md, .txt), extract text, and index into ChromaDB."""
+    s = get_system()
+    filename = file.filename
+    if not filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+        
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    content = ""
+    if filename.lower().endswith(".pdf"):
+        try:
+            import PyPDF2
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(raw_bytes))
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:
+                    content += text + "\n"
+        except Exception as pdf_err:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF document: {pdf_err}")
+    else:
+        content = raw_bytes.decode("utf-8", errors="replace")
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Document contains no readable text")
+
+    collection = s.chroma_store.determine_collection(filename, content)
+    metadata = {
+        "type": collection.replace("_policies", "").replace("_detection", ""),
+        "version": "1.0",
+        "effective_date": datetime.now().strftime("%Y-%m-%d"),
+        "department": "Uploaded Policy",
+        "filename": filename
+    }
+
+    # Store in blob/file registry
+    s.blob_connector.upload_custom_document(filename, content, metadata)
+
+    # Chunk & store in ChromaDB
+    chunks_stored = await s.chroma_store.chunk_and_store_document(filename, content, collection)
+
+    # Refresh policy definitions
+    s.banking_policies = s._load_enhanced_policies()
+
+    return {
+        "status": "ok",
+        "filename": filename,
+        "collection": collection,
+        "chunks": chunks_stored,
+        "size_bytes": len(raw_bytes),
+        "message": f"Successfully indexed {chunks_stored} chunks into collection '{collection}'"
+    }
 
 
 # ----------------------------------------------------------------------------- analysis

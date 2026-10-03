@@ -1,7 +1,15 @@
 import os
+import sys
 import json
 from typing import List, Dict, Optional
 from datetime import datetime
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 class BlobStorageConnector:
     """Enhanced blob storage connector with banking document management"""

@@ -14,14 +14,42 @@ export default function KnowledgeBase() {
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadMsg, setUploadMsg] = useState(null)
+
+  const reloadDocs = () => {
+    api.documents().then((d) => {
+      setDocs(d)
+      if (!active && d[0]) setActive(d[0].name)
+    }).catch((e) => setError(e.message))
+  }
 
   useEffect(() => {
-    api.documents().then((d) => { setDocs(d); if (d[0]) setActive(d[0].name) }).catch((e) => setError(e.message))
+    reloadDocs()
   }, [])
 
   useEffect(() => {
     if (active) api.document(active).then(setDoc).catch((e) => setError(e.message))
   }, [active])
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    setUploadMsg(null)
+    try {
+      const res = await api.uploadDocument(file)
+      setUploadMsg(`✅ Indexed ${res.chunks} chunks from "${res.filename}" into collection "${res.collection}".`)
+      reloadDocs()
+      setActive(res.filename)
+    } catch (err) {
+      setError(`Upload failed: ${err.message}`)
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
 
   const search = async (e) => {
     e?.preventDefault()
@@ -38,7 +66,23 @@ export default function KnowledgeBase() {
   return (
     <div className="kb-grid">
       <section className="panel">
-        <h2>Policy Documents</h2>
+        <div className="row between">
+          <h2>Policy Documents</h2>
+          <label className="upload-btn">
+            {uploading ? 'Indexing…' : '+ Upload Policy'}
+            <input type="file" accept=".pdf,.md,.txt" onChange={handleFileUpload} disabled={uploading} style={{ display: 'none' }} />
+          </label>
+        </div>
+
+        {uploadMsg && <div className="banner banner-ok small">{uploadMsg}</div>}
+
+        <div className="upload-dropzone">
+          <label className="dropzone-label">
+            <span>📄 Upload new PDF, Markdown, or Text banking policy</span>
+            <input type="file" accept=".pdf,.md,.txt" onChange={handleFileUpload} disabled={uploading} />
+          </label>
+        </div>
+
         <ul className="doc-list">
           {docs.map((d) => (
             <li key={d.name}>

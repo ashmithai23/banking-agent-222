@@ -22,12 +22,14 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
   const [error, setError] = useState(null)
   const [stages, setStages] = useState([])
   const [retrieval, setRetrieval] = useState([])
+  const [toolsData, setToolsData] = useState(null)
+  const [routingData, setRoutingData] = useState(null)
   const [agentState, setAgentState] = useState({})
   const [selectedAgent, setSelectedAgent] = useState(null)
   const [report, setReport] = useState(null)
   const abortRef = useRef(null)
 
-  const agents = health?.agents || DEFAULT_AGENTS
+  const agents = routingData?.agents || health?.agents || DEFAULT_AGENTS
 
   useEffect(() => {
     api.customers().then(setCustomers).catch((e) => setError(e.message))
@@ -45,7 +47,9 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
       setAgentState(st)
       setStages([])
       setRetrieval([])
-      setSelectedAgent('Enhanced_Synthesis_Coordinator')
+      setToolsData(null)
+      setRoutingData(null)
+      setSelectedAgent(Object.keys(st).pop() || 'Enhanced_Synthesis_Coordinator')
       onReportConsumed?.()
     }
   }, [initialReport, onReportConsumed])
@@ -61,6 +65,8 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
     setError(null)
     setStages([])
     setRetrieval([])
+    setToolsData(null)
+    setRoutingData(null)
     setAgentState({})
     setReport(null)
     setSelectedAgent(null)
@@ -68,8 +74,23 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
       await streamAnalysis({ customer_id: customerId.trim(), query: query.trim() }, (ev) => {
         if (ev.type === 'stage') setStages((s) => [...s, ev])
         else if (ev.type === 'retrieval') setRetrieval(ev.results)
-        else if (ev.type === 'agent_started')
-          setAgentState((s) => ({ ...s, [ev.agent]: { ...(s[ev.agent] || {}), status: 'running' } }))
+        else if (ev.type === 'tools_executed') setToolsData(ev.tools)
+        else if (ev.type === 'router_decision') setRoutingData(ev)
+        else if (ev.type === 'agent_started') {
+          setAgentState((s) => ({ ...s, [ev.agent]: { ...(s[ev.agent] || {}), status: 'running', content: s[ev.agent]?.content || '' } }))
+          setSelectedAgent(ev.agent)
+        }
+        else if (ev.type === 'agent_token') {
+          setAgentState((s) => ({
+            ...s,
+            [ev.agent]: {
+              ...(s[ev.agent] || {}),
+              status: 'running',
+              content: (s[ev.agent]?.content || '') + ev.token
+            }
+          }))
+          setSelectedAgent(ev.agent)
+        }
         else if (ev.type === 'agent_completed') {
           setAgentState((s) => ({ ...s, [ev.agent]: { status: 'done', content: ev.content, seconds: ev.seconds } }))
           setSelectedAgent(ev.agent)
@@ -155,6 +176,49 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
         </div>
         {error && <div className="banner banner-bad">{error}</div>}
 
+        {routingData && (
+          <div className="banner banner-ok router-card">
+            <div className="row between">
+              <strong>🧭 Supervisor Dynamic Route: {routingData.intent}</strong>
+              <span className="badge badge-accent">{routingData.agents?.length} active agents</span>
+            </div>
+            <div className="small muted" style={{ marginTop: '4px' }}>{routingData.reasoning}</div>
+          </div>
+        )}
+
+        {toolsData && (
+          <div className="tools-panel">
+            <div className="tools-header">
+              <span className="tools-title">🧮 Verified Financial Calculations</span>
+              <span className="muted small">Computed by deterministic banking algorithms</span>
+            </div>
+            <div className="tools-grid">
+              <div className="tool-metric">
+                <span className="tool-label">Debt-To-Income</span>
+                <span className="tool-val">{toolsData.dti_metrics?.dti_percent}%</span>
+                <span className="tool-sub">{toolsData.dti_metrics?.tier?.split(' ')[0]}</span>
+              </div>
+              <div className="tool-metric">
+                <span className="tool-label">Max Borrowing Capacity</span>
+                <span className="tool-val">${toolsData.loan_affordability?.max_recommended_borrowing_limit?.toLocaleString()}</span>
+                <span className="tool-sub">@ {toolsData.loan_affordability?.assigned_apr}% APR</span>
+              </div>
+              <div className="tool-metric">
+                <span className="tool-label">15-Yr Wealth Projection</span>
+                <span className="tool-val">${toolsData.wealth_projection?.projected_portfolio_value?.toLocaleString()}</span>
+                <span className="tool-sub">{toolsData.wealth_projection?.multiplier}x deposit multiplier</span>
+              </div>
+              <div className="tool-metric">
+                <span className="tool-label">Fraud Scan</span>
+                <span className={`tool-val ${toolsData.fraud_rule_scan?.risk_level === 'LOW' ? 'val-good' : 'val-warn'}`}>
+                  {toolsData.fraud_rule_scan?.risk_level}
+                </span>
+                <span className="tool-sub">{toolsData.fraud_rule_scan?.alerts_count} trigger alerts</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <h3>Agent Pipeline</h3>
         <ol className="pipeline">
           {agents.map((a, i) => {
@@ -186,11 +250,16 @@ export default function AnalysisView({ health, initialReport, onReportConsumed }
 
         {selected?.content ? (
           <div className="agent-output">
-            <div className="agent-output-title">{agentLabel(selectedAgent)}</div>
+            <div className="agent-output-title row between">
+              <span>{agentLabel(selectedAgent)}</span>
+              {selected?.status === 'running' && (
+                <span className="streaming-badge"><span className="pulse-dot" /> Streaming live response...</span>
+              )}
+            </div>
             <Markdown>{selected.content}</Markdown>
           </div>
         ) : (
-          !running && !report && <p className="muted empty">Select a customer, enter a query and run the analysis to watch the six agents collaborate.</p>
+          !running && !report && <p className="muted empty">Select a customer, enter a query and run the analysis to watch the agents collaborate in real-time.</p>
         )}
       </section>
 

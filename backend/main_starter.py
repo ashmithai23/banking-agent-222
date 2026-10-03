@@ -1,8 +1,16 @@
 import asyncio
 import os
+import sys
 import uuid
 import logging
 import time
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from typing import Callable, List, Dict, Any, Optional, Literal
 from datetime import datetime
 from pydantic import field_validator, Field
@@ -257,11 +265,24 @@ class EnhancedBankingSequentialOrchestration:
                     ai_model_id=model,
                     api_key=openai_key,
                 )
-                # Any OpenAI-compatible endpoint (e.g. NVIDIA NIM, OpenRouter, vLLM)
+                # Any OpenAI-compatible endpoint (e.g. Google Gemini, NVIDIA NIM, OpenRouter, vLLM)
                 base_url = os.getenv("OPENAI_BASE_URL", "").strip()
                 if base_url:
                     from openai import AsyncOpenAI
-                    kwargs["async_client"] = AsyncOpenAI(api_key=openai_key, base_url=base_url)
+                    async_client = AsyncOpenAI(api_key=openai_key, base_url=base_url)
+                    orig_create = async_client.chat.completions.create
+
+                    async def safe_create(*c_args, **c_kwargs):
+                        msgs = c_kwargs.get("messages")
+                        if msgs and isinstance(msgs, list):
+                            last_msg = msgs[-1]
+                            last_role = last_msg.get("role") if isinstance(last_msg, dict) else getattr(last_msg, "role", None)
+                            if last_role in ("assistant", "model"):
+                                c_kwargs["messages"] = list(msgs) + [{"role": "user", "content": "Please proceed with your specialized analysis based on the information provided."}]
+                        return await orig_create(*c_args, **c_kwargs)
+
+                    async_client.chat.completions.create = safe_create
+                    kwargs["async_client"] = async_client
                 self.kernel.add_service(OpenAIChatCompletion(**kwargs))
                 return "openai", model
         return "offline", "rule-based-agents"
@@ -389,7 +410,7 @@ class EnhancedBankingSequentialOrchestration:
         settings = OpenAIChatPromptExecutionSettings(service_id="enhanced_banking_chat", **options)
         return KernelArguments(settings=settings)
 
-    def create_enhanced_agents(self) -> List[ChatCompletionAgent]:
+    def create_enhanced_agents(self, selected_names: Optional[List[str]] = None) -> List[ChatCompletionAgent]:
         """Create specialized banking agents with detailed instructions"""
         if self.llm_mode == "offline":
             # Agents are still defined (instructions, names); responses come from offline_agents.
@@ -537,8 +558,11 @@ Output format:
             arguments=llm_arguments
         )
 
-        agents = [data_agent, fraud_agent, loan_agent, support_agent, risk_agent, synthesis_agent]
-        return agents
+        all_agents = [data_agent, fraud_agent, loan_agent, support_agent, risk_agent, synthesis_agent]
+        if not selected_names:
+            return all_agents
+        agent_map = {a.name: a for a in all_agents}
+        return [agent_map[name] for name in selected_names if name in agent_map]
 
     async def load_enhanced_documents(self, max_attempts: int = 3):
         """Load banking policy documents into ChromaDB for semantic search.
@@ -612,12 +636,33 @@ Output format:
             CustomerProfile(customer_id=customer_id)
         )
 
-        # Hybrid search across all banking collections
-        emit({"type": "stage", "stage": "retrieval", "message": "Retrieving relevant policies (hybrid RAG search)"})
-        search_results = await self.chroma_store.hybrid_search(customer_query, [
+        # 1. Execute Banking Tools
+        from banking_tools import run_banking_tool_suite
+        from supervisor import analyze_and_route
+
+        emit({"type": "stage", "stage": "tools", "message": "Executing deterministic financial calculation tools"})
+        tool_results = run_banking_tool_suite(customer_profile.model_dump(), customer_query)
+        emit({"type": "tools_executed", "tools": tool_results})
+
+        # 2. Supervisor / Dynamic Routing
+        emit({"type": "stage", "stage": "supervisor", "message": "Supervisor Agent analyzing query intent and routing pipeline"})
+        routing = analyze_and_route(customer_query, customer_profile.model_dump())
+        emit({
+            "type": "router_decision",
+            "intent": routing["intent_title"],
+            "reasoning": routing["reasoning"],
+            "agents": routing["selected_agents"],
+            "collections": routing["primary_collections"],
+            "is_full_audit": routing["is_full_audit"],
+        })
+
+        # 3. Hybrid search across prioritized banking collections
+        emit({"type": "stage", "stage": "retrieval", "message": f"Retrieving relevant policies for {routing['intent_title']} (hybrid RAG)"})
+        target_collections = routing.get("primary_collections") or [
             "fraud_detection", "loan_policies", "customer_support",
             "risk_assessment", "transaction_monitoring", "compliance"
-        ], top_k=4)
+        ]
+        search_results = await self.chroma_store.hybrid_search(customer_query, target_collections, top_k=4)
         emit({
             "type": "retrieval",
             "results": [
@@ -631,91 +676,77 @@ Output format:
             ],
         })
 
-        # Prepare enhanced context for orchestration
-        banking_context = self._prepare_enhanced_context(customer_profile, search_results, customer_query)
+        # Prepare enhanced context with verified tools math
+        banking_context = self._prepare_enhanced_context(customer_profile, search_results, customer_query, tool_results)
 
-        # Create enhanced agents
-        agents = self.create_enhanced_agents()
+        # Create dynamically routed agents
+        agents = self.create_enhanced_agents(routing["selected_agents"])
 
-        # Agent callback tracking
+        # Agent tracking
         agent_contributions: Dict[str, str] = {}
         agent_timings: Dict[str, float] = {}
-        last_tick = [time.time()]
 
-        def record_agent(name: str, content: str) -> None:
-            now = time.time()
+        def record_agent(name: str, content: str, duration: float) -> None:
             agent_contributions[name] = content
-            agent_timings[name] = round(now - last_tick[0], 2)
-            last_tick[0] = now
-            self.logger.info(f"Agent {name} completed analysis")
-            emit({"type": "agent_completed", "agent": name, "content": content,
-                  "seconds": agent_timings[name]})
-            idx = AGENT_NAMES.index(name) if name in AGENT_NAMES else -1
-            if 0 <= idx < len(AGENT_NAMES) - 1:
-                emit({"type": "agent_started", "agent": AGENT_NAMES[idx + 1]})
+            agent_timings[name] = round(duration, 2)
+            self.logger.info(f"Agent {name} completed analysis ({agent_timings[name]}s)")
+            emit({"type": "agent_completed", "agent": name, "content": content, "seconds": agent_timings[name]})
 
-        def enhanced_agent_callback(message: ChatMessageContent) -> None:
-            """Track agent contributions and log output"""
-            record_agent(message.name, message.content)
-            print(f"\n{'='*60}")
-            print(f"# {message.name}")
-            print(f"{'='*60}")
-            print(f"{message.content}\n")
+        emit({
+            "type": "stage",
+            "stage": "agents",
+            "message": f"Running {len(agents)} specialized agents ({self.llm_mode})",
+            "agents": [a.name for a in agents]
+        })
 
-        emit({"type": "stage", "stage": "agents", "message": f"Running {len(agents)}-agent sequential orchestration ({self.llm_mode})"})
-        emit({"type": "agent_started", "agent": AGENT_NAMES[0]})
-
+        accumulated_contributions = ""
+        previous = ""
         runtime = None
+
         try:
-            if self.llm_mode == "offline":
-                # Deterministic, policy-grounded agents (no LLM credentials configured)
-                previous = ""
-                for name in AGENT_NAMES:
-                    await asyncio.sleep(0.35)  # keep the pipeline observable in the UI
+            for idx, agent in enumerate(agents):
+                emit({"type": "agent_started", "agent": agent.name})
+                t_agent_start = time.time()
+
+                if self.llm_mode == "offline":
                     content = run_offline_agent(
-                        name, customer_profile.model_dump(), customer_query,
+                        agent.name, customer_profile.model_dump(), customer_query,
                         search_results, self.banking_policies, agent_contributions,
                     )
+                    words = content.split(" ")
+                    for w_idx, w in enumerate(words):
+                        chunk_text = w if w_idx == len(words) - 1 else w + " "
+                        emit({"type": "agent_token", "agent": agent.name, "token": chunk_text})
+                        await asyncio.sleep(0.012)
+                    record_agent(agent.name, content, time.time() - t_agent_start)
                     previous = content
-                    record_agent(name, content)
-                final_output = previous
-            else:
-                # Create SequentialOrchestration
-                sequential_orchestration = SequentialOrchestration(
-                    members=agents,
-                    agent_response_callback=enhanced_agent_callback,
-                )
-
-                # Set up runtime
-                runtime = InProcessRuntime()
-                runtime.start()
-
-                orchestration_task = f"""
+                else:
+                    agent_prompt = f"""
 ENHANCED BANKING CUSTOMER ANALYSIS REQUEST
 ============================================
-
 {banking_context}
 
-ANALYSIS INSTRUCTIONS:
-Each agent should perform their specialized analysis in sequence:
-1. Data Gatherer: Analyze the customer profile, calculate financial metrics, and identify applicable policies.
-2. Fraud Analyst: Review transaction patterns for suspicious activity and assess fraud risk.
-3. Loan Analyst: Evaluate loan eligibility, credit risk, and recommend suitable products.
-4. Support Specialist: Assess customer service needs, retention risk, and engagement opportunities.
-5. Risk Analyst: Perform enterprise risk assessment across all risk categories and verify compliance.
-6. Synthesis Coordinator: Integrate all findings into an executive report with prioritized recommendations.
+SUPERVISOR ROUTING FOCUS:
+Intent: {routing['intent_title']}
+Reasoning: {routing['reasoning']}
+{f"PREVIOUS SPECIALIZED AGENT CONTRIBUTIONS:\n{accumulated_contributions}" if accumulated_contributions else ""}
 
-Provide specific, actionable insights based on the customer data and banking policies provided.
+INSTRUCTIONS FOR {agent.name}:
+Perform your specialized banking analysis based on the customer data, verified financial calculations, and policies provided above.
 """
+                    tokens = []
+                    async for chunk in agent.invoke_stream(agent_prompt):
+                        if chunk.content:
+                            token_str = str(chunk.content)
+                            tokens.append(token_str)
+                            emit({"type": "agent_token", "agent": agent.name, "token": token_str})
 
-                # Invoke the orchestration
-                orchestration_result = await sequential_orchestration.invoke(
-                    task=orchestration_task,
-                    runtime=runtime
-                )
+                    content = "".join(tokens)
+                    accumulated_contributions += f"\n\n### [{agent.name} Findings]:\n{content}\n"
+                    record_agent(agent.name, content, time.time() - t_agent_start)
+                    previous = content
 
-                # Get the final result
-                final_output = await asyncio.wait_for(orchestration_result.get(), timeout=300.0)
+            final_output = previous
 
             # Calculate enhanced risk score
             risk_score = self._calculate_enhanced_risk_score(customer_profile, search_results)
@@ -937,7 +968,7 @@ Provide specific, actionable insights based on the customer data and banking pol
 
         return recommendations
 
-    def _prepare_enhanced_context(self, customer_profile: CustomerProfile, search_results: List[Dict], customer_query: str) -> str:
+    def _prepare_enhanced_context(self, customer_profile: CustomerProfile, search_results: List[Dict], customer_query: str, tool_results: Optional[Dict[str, Any]] = None) -> str:
         """Prepare comprehensive context for banking orchestration"""
 
         # Customer profile context
@@ -958,6 +989,22 @@ CUSTOMER PROFILE:
         for tx in customer_profile.recent_transactions[:10]:
             tx_context += f"- ${tx.get('amount', 0):,.2f} - {tx.get('description', 'N/A')} ({tx.get('ts', 'N/A')})\n"
 
+        # Financial tools calculation context
+        tools_context = ""
+        if tool_results:
+            dti = tool_results.get("dti_metrics", {})
+            afford = tool_results.get("loan_affordability", {})
+            wealth = tool_results.get("wealth_projection", {})
+            fraud = tool_results.get("fraud_rule_scan", {})
+            tools_context = f"""
+VERIFIED FINANCIAL TOOL CALCULATIONS:
+- Debt-To-Income (DTI): {dti.get('dti_percent', 0)}% -> {dti.get('tier', 'Standard')} ({dti.get('eligibility_assessment', '')})
+- Max Recommended Borrowing Limit: ${afford.get('max_recommended_borrowing_limit', 0):,.2f} at {afford.get('assigned_apr', 0)}% APR
+- Sample 60-Month Payment on $50K: ${afford.get('monthly_payment', 0):,.2f}/mo (Total interest: ${afford.get('total_interest', 0):,.2f})
+- 15-Year Wealth & Retirement Projection: ${wealth.get('projected_portfolio_value', 0):,.2f} ({wealth.get('multiplier', 1)}x growth)
+- Automated Fraud & AML Rule Scan: Risk Level {fraud.get('risk_level', 'LOW')} with {fraud.get('alerts_count', 0)} trigger alerts
+"""
+
         # Policy context from search results
         policy_context = "\nRELEVANT BANKING POLICIES:\n"
         for i, result in enumerate(search_results[:6], 1):
@@ -974,12 +1021,13 @@ CUSTOMER PROFILE:
 BANKING ANALYSIS REQUEST: {customer_query}
 
 {customer_context}
+{tools_context}
 {tx_context}
 {policy_context}
 {policy_summary}
 
 ANALYSIS SCOPE:
-Provide a comprehensive analysis covering fraud detection, loan eligibility,
+Provide an expert, policy-grounded analysis covering fraud detection, loan eligibility,
 customer service optimization, enterprise risk assessment, and strategic recommendations.
 """
 

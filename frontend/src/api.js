@@ -22,6 +22,20 @@ export const api = {
   search: (body) => request('/api/search', { method: 'POST', body: JSON.stringify(body) }),
   reports: () => request('/api/reports'),
   report: (id) => request(`/api/reports/${encodeURIComponent(id)}`),
+  uploadDocument: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${BASE}/api/documents/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) {
+      let detail = res.statusText
+      try { detail = (await res.json()).detail || detail } catch {}
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    }
+    return res.json()
+  },
 }
 
 /** Stream analysis progress via SSE over fetch (POST). Calls onEvent for each event. */

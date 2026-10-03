@@ -1,8 +1,16 @@
+import sys
 import chromadb
 from chromadb.config import Settings
 from typing import List, Dict, Any
 import uuid
 from datetime import datetime
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 class ChromaDBManager:
     """Enhanced ChromaDB manager with banking-specific functionality"""
