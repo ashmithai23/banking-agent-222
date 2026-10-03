@@ -1,0 +1,17 @@
+{
+  "test_case_id": "TC-MORT-001",
+  "name": "Prime Borrower Mortgage Affordability Evaluation",
+  "customer_profile": {
+    "gross_monthly_income": 12500,
+    "existing_monthly_debts": 1200,
+    "proposed_mortgage_payment": 2850,
+    "credit_score": 760,
+    "down_payment_percentage": 20.0
+  },
+  "expected_outcomes": {
+    "calculated_dti": 32.4,
+    "eligible_conventional": true,
+    "conforming_limit_status": "within_bounds",
+    "recommended_action": "pre_approved"
+  }
+}
