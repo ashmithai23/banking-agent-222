@@ -42,7 +42,7 @@ def calculate_loan_affordability(
     term_months: int = 60
 ) -> Dict[str, Any]:
     """Calculate borrower capacity, monthly payment, and maximum recommended credit line."""
-    monthly_income = annual_income / 12.0
+    monthly_income = max(1.0, float(annual_income) / 12.0)
     
     # Determine base interest rate based on credit score
     if credit_score >= 760:

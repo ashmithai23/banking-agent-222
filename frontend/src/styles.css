@@ -652,7 +652,7 @@ button {
   display: grid;
   gap: 10px;
   margin-bottom: 16px;
-  max-height: 380px;
+  max-height: 480px;
   overflow-y: auto;
   padding-right: 4px;
 }

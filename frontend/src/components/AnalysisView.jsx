@@ -222,17 +222,43 @@ ${report.recommendations.map((r) => `[ ] ${r}`).join('\n')}`
 
       {/* ---------------- LEFT COLUMN: Customer Intelligence Hub ---------------- */}
       <section className="panel">
-        <h2>
-          <span className="h2-icon">👤</span> Customer Intelligence
-        </h2>
+        <div className="row between" style={{ margin: '0 0 10px' }}>
+          <h2>
+            <span className="h2-icon">👤</span> Customer Intelligence
+          </h2>
+          <span className="badge" style={{ background: 'var(--accent-soft)', color: 'var(--brand-blue)' }}>
+            {customers.length} Profiles
+          </span>
+        </div>
 
         <div className="customer-search-box">
           <input
             value={customerSearch}
             onChange={(e) => setCustomerSearch(e.target.value)}
-            placeholder="🔍 Filter customer ID or type..."
+            placeholder="🔍 Filter by ID, type (e.g. wealth, standard)..."
             style={{ fontSize: '12.5px', padding: '7px 10px' }}
           />
+        </div>
+
+        <div className="chips" style={{ margin: '4px 0 10px', gap: '5px' }}>
+          {['ALL', 'LOW', 'MEDIUM', 'HIGH'].map((t) => (
+            <button
+              key={t}
+              className={`chip ${
+                (customerSearch === '' && t === 'ALL') || customerSearch.toUpperCase() === t
+                  ? 'on'
+                  : ''
+              }`}
+              onClick={() => setCustomerSearch(t === 'ALL' ? '' : t.toLowerCase())}
+              style={{ padding: '3px 8px', fontSize: '11px' }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        <div className="muted small" style={{ marginBottom: '8px', fontSize: '11px' }}>
+          Showing {filteredCustomers.length} of {customers.length} customer records
         </div>
 
         <div className="customer-list">

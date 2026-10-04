@@ -34,11 +34,19 @@ ALL_COLLECTIONS = [
     "risk_assessment", "transaction_monitoring", "compliance",
 ]
 
-SAMPLE_QUERIES = {
-    "12345": "I need comprehensive financial planning including investments and retirement options",
-    "67890": "I want to apply for a home loan and need to understand my eligibility",
-    "11111": "I noticed some suspicious activity on my account and need help resolving it",
-}
+try:
+    from customer_data import get_sample_queries_dict
+    SAMPLE_QUERIES = get_sample_queries_dict()
+except ImportError:
+    try:
+        from backend.customer_data import get_sample_queries_dict
+        SAMPLE_QUERIES = get_sample_queries_dict()
+    except Exception:
+        SAMPLE_QUERIES = {
+            "12345": "I need comprehensive financial planning including investments and retirement options",
+            "67890": "I want to apply for a home loan and need to understand my eligibility",
+            "11111": "I noticed some suspicious activity on my account and need help resolving it",
+        }
 
 app = FastAPI(title="VectraBank Agentic RAG API", version="1.0.0")
 app.add_middleware(

@@ -319,57 +319,16 @@ class EnhancedBankingSequentialOrchestration:
     async def _load_customer_profiles(self) -> Dict[str, CustomerProfile]:
         """Load customer profiles from Azure SQL with fallback to sample data"""
 
-        # Default sample profiles
-        default_profiles = {
-            "12345": CustomerProfile(
-                customer_id="12345",
-                income=75000.0,
-                credit_score=780,
-                account_type="premium_plus",
-                customer_since="2019-05-15",
-                risk_tier="low",
-                recent_transactions=[
-                    {"amount": 4500.00, "description": "Salary Deposit", "ts": "2024-03-20"},
-                    {"amount": 1500.00, "description": "Mortgage Payment", "ts": "2024-03-15"},
-                    {"amount": 300.00, "description": "Investment Contribution", "ts": "2024-03-10"},
-                    {"amount": 200.00, "description": "Utility Bills", "ts": "2024-03-05"},
-                ],
-                banking_products=["checking", "savings", "mortgage", "investment", "credit_card"],
-                last_review_date="2024-01-10"
-            ),
-            "67890": CustomerProfile(
-                customer_id="67890",
-                income=45000.0,
-                credit_score=680,
-                account_type="standard",
-                customer_since="2021-08-20",
-                risk_tier="medium",
-                recent_transactions=[
-                    {"amount": 3200.00, "description": "Salary Deposit", "ts": "2024-03-20"},
-                    {"amount": 1200.00, "description": "Rent Payment", "ts": "2024-03-14"},
-                    {"amount": 400.00, "description": "Car Payment", "ts": "2024-03-08"},
-                    {"amount": 150.00, "description": "Student Loan", "ts": "2024-03-02"},
-                ],
-                banking_products=["checking", "savings", "credit_card"],
-                last_review_date="2024-02-15"
-            ),
-            "11111": CustomerProfile(
-                customer_id="11111",
-                income=28000.0,
-                credit_score=620,
-                account_type="basic",
-                customer_since="2023-01-10",
-                risk_tier="high",
-                recent_transactions=[
-                    {"amount": 2300.00, "description": "Salary Deposit", "ts": "2024-03-20"},
-                    {"amount": 800.00, "description": "Rent Payment", "ts": "2024-03-12"},
-                    {"amount": 300.00, "description": "Credit Card Payment", "ts": "2024-03-07"},
-                    {"amount": 150.00, "description": "Overdraft Fee", "ts": "2024-03-01"},
-                ],
-                banking_products=["checking"],
-                last_review_date="2024-03-01"
-            ),
-        }
+        # Default sample profiles (35+ rich banking customer personas)
+        try:
+            from customer_data import get_customer_profiles_dict
+            default_profiles = get_customer_profiles_dict()
+        except ImportError:
+            try:
+                from backend.customer_data import get_customer_profiles_dict
+                default_profiles = get_customer_profiles_dict()
+            except Exception:
+                default_profiles = {}
 
         # Try loading from Azure SQL, fall back to defaults
         if self.data_connector.connection_string:
